@@ -19,13 +19,15 @@ extensions = (
 
 
 class Bot(commands.Bot):
+    channel_indexes = {}
+
     def __init__(self):
         super().__init__(
-            command_prefix=lambda b, m: b.prefixes.get(str(m.guild.id), 'dvc!'),
+            command_prefix=lambda b, m: b.prefixes.get(str(m.guild.id), 'dv!'),
             help_command=HelpCommand(),
             case_insensitive=True,
             owner_id=config.owner_id,
-            activity=discord.Activity(type=discord.ActivityType.watching, name='dvc!')
+            activity=discord.Activity(type=discord.ActivityType.watching, name='dv!')
         )
         self.launched_at = None
         self.client_id = config.client_id
@@ -113,6 +115,7 @@ class Bot(commands.Bot):
             name = settings.get('name', '@user\'s channel')
             limit = settings.get('limit', 10)
             top = settings.get('top', False)
+            save_index = False
             try:
                 category = member.guild.get_channel(settings['category'])
             except KeyError:
@@ -127,8 +130,15 @@ class Bot(commands.Bot):
                 else:
                     name = name.replace('@game', 'no game')
             if '@position' in name:
-                channels = [c for c in category.voice_channels if c.id in self.channels]
-                name = name.replace('@position', str(len(channels)+1))
+                save_index = True
+                index = 1
+                indexes_sorted = sorted(self.channel_indexes.values())
+                for i in indexes_sorted:
+                    if index >= i:
+                        index += 1
+                    else:
+                        break
+                name = name.replace('@position', str(index))
             if len(name) > 100:
                 name = name[:97] + '...'
             words = self.bad_words.get(str(member.guild.id), [])
@@ -159,6 +169,8 @@ class Bot(commands.Bot):
                 self.loop.create_task(new_channel.edit(position=0))
             await member.move_to(new_channel)
             self.channels.append(new_channel.id)
+            if save_index:
+                self.channel_indexes[new_channel.id] = index
             await self.channels.save()
 
     async def on_guild_channel_delete(self, channel):
@@ -176,6 +188,7 @@ class Bot(commands.Bot):
                 if perms.manage_channels:
                     await channel.delete()
                 self.channels.remove(channel.id)
+                del self.channel_indexes[channel.id]
                 await self.channels.save()
 
     async def on_command_error(self, ctx, error):
