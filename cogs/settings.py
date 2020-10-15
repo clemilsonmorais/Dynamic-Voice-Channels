@@ -15,10 +15,11 @@ EXIT = config.emojis['exit']
 
 
 class EditMenu(menus.Menu):
-    def __init__(self, channel):
+    def __init__(self, ctx):
         super().__init__(timeout=60, delete_message_after=True, check_embeds=True)
-        self.channel = channel
+        self.channel = ctx.channel
         self.help = False
+        self.ctx = ctx
 
     def get_settings(self):
         return self.bot.configs.get(str(self.channel.id), {})
@@ -217,6 +218,61 @@ class Settings(commands.Cog):
             msg=f'A new category and a new channel have been created. Join `{channel.name}` and try it out.',
             color=discord.Color.green()
         )
+
+    @commands.command(aliases=['rn'])
+    async def rename(self, ctx):
+        print('rename')
+        await self.on_name(ctx)
+        # await ctx.send(msg)
+
+    async def on_name(self, ctx):
+        """Changes the default name"""
+        msg = 'Please type the name you want to set.'
+        to_delete = []
+        while True:
+            to_delete.append(await ctx.send(msg))
+            try:
+                message = await self.wait_for_message(ctx)
+            except asyncio.TimeoutError:
+                return
+            to_delete.append(message)
+            if len(message.content) < 2:
+                msg = 'The name cannot be less than 2 characters. Try again.'
+            else:
+                await self.set_settings(ctx, 'name', message.content)
+                to_delete.append(await ctx.send('Name has been updated.'))
+                await asyncio.sleep(3)
+                break
+        ctx.bot.loop.create_task(self.clean_up(ctx, to_delete))
+
+    async def wait_for_message(self, ctx):
+        message = await ctx.bot.wait_for(
+            'message',
+            check=lambda m: m.author == ctx.author and m.channel == ctx.channel,
+            timeout=60
+        )
+        return message
+
+    async def clean_up(self, ctx, to_delete):
+        if ctx.channel.permissions_for(ctx.guild.me).manage_messages:
+            await ctx.channel.delete_messages(to_delete)
+
+    def get_settings(self, ctx):
+        return ctx.bot.configs.get(str(ctx.channel.id), {})
+
+    async def set_settings(self, ctx, name, value):
+        settings = self.get_settings(ctx)
+        settings[name] = value
+        list_voice_channel = list(filter(lambda ch: ch.name == 'join me', ctx.guild.channels))
+        if list_voice_channel:
+            channel_id = list_voice_channel[0].id
+            ctx.bot.configs[str(channel_id)] = settings
+            await ctx.bot.configs.save()
+        else:
+            await ctx.safe_send(
+                msg='Channel not found.',
+                color=discord.Color.red()
+            )
 
     @commands.command(aliases=['channel'])
     @commands.has_permissions(manage_guild=True)
