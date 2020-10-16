@@ -1,4 +1,5 @@
 import discord
+from discord import ChannelType
 from discord.ext import commands, menus
 import config
 from cogs.help import HelpCommand
@@ -94,6 +95,14 @@ class Bot(commands.Bot):
         if member.id in self.blacklist:
             return
         if not str(channel.id) in self.configs:
+            channels = [c for c in channel.guild.channels if c.type == ChannelType.text and c.name == channel.name]
+            if channels:
+                text_channel = channels[0]
+                overwrite = {channel.guild.default_role: discord.PermissionOverwrite(read_messages=False)}
+                for m in channel.members:
+                    overwrite[m] = discord.PermissionOverwrite(read_messages=True)
+                overwrite[member] = discord.PermissionOverwrite(read_messages=True)
+                await text_channel.edit(overwrites=overwrite)
             return
         perms = member.guild.me.guild_permissions
         if not perms.manage_channels or not perms.move_members:
@@ -113,7 +122,7 @@ class Bot(commands.Bot):
         else:
             settings = self.configs[str(channel.id)]
             name = settings.get('name', '@user\'s channel')
-            limit = settings.get('limit', 10)
+            limit = settings.get('limit', 0)
             top = settings.get('top', False)
             save_index = False
             try:
@@ -139,6 +148,7 @@ class Bot(commands.Bot):
                     else:
                         break
                 name = name.replace('@position', str(index))
+                name = name.replace(' ', '-')
             if len(name) > 100:
                 name = name[:97] + '...'
             words = self.bad_words.get(str(member.guild.id), [])
@@ -165,10 +175,23 @@ class Bot(commands.Bot):
                 category=category,
                 user_limit=limit
             )
+
+            text_overwrites = {channel.guild.default_role: discord.PermissionOverwrite(read_messages=False)}
+            for m in channel.members:
+                text_overwrites[m] = discord.PermissionOverwrite(read_messages=True)
+
+            new_text_channel = await member.guild.create_text_channel(
+                overwrites=text_overwrites,
+                name=name,
+                category=category,
+                user_limit=limit
+            )
             if top:
                 self.loop.create_task(new_channel.edit(position=0))
             await member.move_to(new_channel)
             self.channels.append(new_channel.id)
+            self.channels.append(new_text_channel.id)
+
             if save_index:
                 self.channel_indexes[new_channel.id] = index
             await self.channels.save()
@@ -186,10 +209,22 @@ class Bot(commands.Bot):
             if len(channel.members) == 0:
                 perms = channel.permissions_for(member.guild.me)
                 if perms.manage_channels:
-                    await channel.delete()
+                    await self.clear_empty_channels(channel)
                 self.channels.remove(channel.id)
                 del self.channel_indexes[channel.id]
                 await self.channels.save()
+        text_channel = [c for c in channel.guild.channels if c.type == ChannelType.text and c.name == channel.name]
+        if text_channel:
+            text_channel = text_channel[0]
+            overwrite = {channel.guild.default_role: discord.PermissionOverwrite(read_messages=False)}
+            for m in channel.members:
+                overwrite[m] = discord.PermissionOverwrite(read_messages=True)
+            overwrite[member] = discord.PermissionOverwrite(read_messages=False)
+            await text_channel.edit(overwrites=overwrite)
+
+    async def clear_empty_channels(self, channel):
+        [await c.delete() for c in channel.guild.channels if c.type == ChannelType.text and c.name == channel.name]
+        await channel.delete()
 
     async def on_command_error(self, ctx, error):
         if isinstance(error, commands.CommandNotFound):

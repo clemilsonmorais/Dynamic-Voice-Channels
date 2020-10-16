@@ -223,7 +223,6 @@ class Settings(commands.Cog):
     async def rename(self, ctx):
         print('rename')
         await self.on_name(ctx)
-        # await ctx.send(msg)
 
     async def on_name(self, ctx):
         """Changes the default name"""
@@ -313,7 +312,7 @@ class Settings(commands.Cog):
         if str(channel.id) not in ctx.bot.configs:
             raise commands.BadArgument('This channel has not been added yet.')
         else:
-            menu = EditMenu(channel)
+            menu = EditMenu(ctx)
             await menu.start(ctx, wait=True)
 
     @commands.command()
