@@ -44,7 +44,9 @@ class Core(commands.Cog):
         embed.set_author(name=f'Owner: {owner}', icon_url=owner.avatar_url)
         proc = psutil.Process()
         with proc.oneshot():
-            uptime = datetime.datetime.utcnow() - ctx.bot.launched_at
+            uptime = datetime.datetime.utcnow()
+            if ctx.bot.launched_at:
+                uptime = uptime - ctx.bot.launched_at
             mem_total = psutil.virtual_memory().total / (1024 ** 2)
             mem_of_total = proc.memory_percent()
             mem_usage = mem_total * (mem_of_total / 100)
