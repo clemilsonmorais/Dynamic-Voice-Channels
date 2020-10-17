@@ -219,10 +219,53 @@ class Settings(commands.Cog):
             color=discord.Color.green()
         )
 
+    @commands.command(aliases=['settxtvc'])
+    async def settextvoice(self, ctx):
+        await self.on_set_text_voice(ctx, False)
+
+    @commands.command(aliases=['removetextvoice'])
+    async def create_text_on_voice_join(self, ctx):
+        print('category')
+        await self.on_set_text_voice(ctx, True)
+
+
     @commands.command(aliases=['rn'])
     async def rename(self, ctx):
         print('rename')
         await self.on_name(ctx)
+
+    async def on_set_text_voice(self, ctx, remove=False):
+        """Changes the default name"""
+        msg = 'Please type the category\'s name you want to allow create text channels on join voice channels.'
+        if remove:
+            msg = 'Please type the category you want to remove from creating text channels on join voice channels'
+        to_delete = []
+        while True:
+            to_delete.append(await ctx.send(msg))
+            try:
+                message = await self.wait_for_message(ctx)
+            except asyncio.TimeoutError:
+                return
+            to_delete.append(message)
+            if len(message.content) < 2:
+                msg = 'The name cannot be less than 2 characters. Try again.'
+            else:
+                category_config = ctx.bot.configs['category-channels']
+                if not category_config:
+                    category_config = []
+                if remove and message.content in category_config:
+                    category_config.remove(message.content)
+                    await ctx.bot.configs.save()
+                    await ctx.send('Category has been removed.')
+                    return
+
+                if message.content not in category_config:
+                    category_config.append(message.content.lower())
+                await ctx.bot.configs.save()
+                to_delete.append(await ctx.send('Category has been set.'))
+                await asyncio.sleep(3)
+                break
+        ctx.bot.loop.create_task(self.clean_up(ctx, to_delete))
 
     async def on_name(self, ctx):
         """Changes the default name"""

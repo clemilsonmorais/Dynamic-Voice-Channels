@@ -10,7 +10,6 @@ import datetime
 from contextlib import suppress
 import traceback
 
-
 extensions = (
     "cogs.settings",
     "cogs.core",
@@ -91,18 +90,41 @@ class Bot(commands.Bot):
             if after.channel is not None:
                 await self.on_voice_join(member, after.channel)
 
-    async def on_voice_join(self, member, channel):
+    async def on_voice_join(self, member, voice_channel):
         if member.id in self.blacklist:
             return
-        if not str(channel.id) in self.configs:
-            channels = [c for c in channel.guild.channels if c.type == ChannelType.text and c.name == channel.name]
+        if not str(voice_channel.id) in self.configs:
+            channels = [c for c in voice_channel.guild.channels if c.type == ChannelType.text and
+                        c.name == self.get_channel_text_name(voice_channel.name)
+                        and c.category_id == voice_channel.category_id]
             if channels:
                 text_channel = channels[0]
-                overwrite = {channel.guild.default_role: discord.PermissionOverwrite(read_messages=False)}
-                for m in channel.members:
+                overwrite = {voice_channel.guild.default_role: discord.PermissionOverwrite(read_messages=False)}
+                for m in voice_channel.members:
                     overwrite[m] = discord.PermissionOverwrite(read_messages=True)
                 overwrite[member] = discord.PermissionOverwrite(read_messages=True)
                 await text_channel.edit(overwrites=overwrite)
+            else:
+                settings = self.configs['category-channels']
+                if settings and voice_channel.category.name.lower() in settings:
+                    name = voice_channel.name
+                    existing_channels = [c for c in voice_channel.guild.channels if
+                                         c.type == ChannelType.text and c.name == self.get_channel_text_name(name)
+                                         and c.category.name.lower() == settings[0]]
+                    if voice_channel.category.name.lower() in settings:
+                        if existing_channels:
+                            await self.overwrite_text_channel_permissions(voice_channel, self.get_channel_text_name(voice_channel.name))
+                        else:
+                            text_overwrites = {voice_channel.guild.default_role: discord.PermissionOverwrite(read_messages=False)}
+                            for m in voice_channel.members:
+                                text_overwrites[m] = discord.PermissionOverwrite(read_messages=True)
+                            new_text_channel = await member.guild.create_text_channel(
+                                overwrites=text_overwrites,
+                                name=name,
+                                category=voice_channel.category,
+                                user_limit=0
+                            )
+                            self.channels.append(new_text_channel.id)
             return
         perms = member.guild.me.guild_permissions
         if not perms.manage_channels or not perms.move_members:
@@ -120,7 +142,7 @@ class Bot(commands.Bot):
             with suppress(discord.Forbidden):
                 await member.send(f'You are being rate limited. Try again in `{retry_after:.2f}` seconds.')
         else:
-            settings = self.configs[str(channel.id)]
+            settings = self.configs[str(voice_channel.id)]
             name = settings.get('name', '@user\'s channel')
             limit = settings.get('limit', 0)
             top = settings.get('top', False)
@@ -128,7 +150,7 @@ class Bot(commands.Bot):
             try:
                 category = member.guild.get_channel(settings['category'])
             except KeyError:
-                category = channel.category
+                category = voice_channel.category
             if '@user' in name:
                 name = name.replace('@user', member.display_name)
             if '@game' in name:
@@ -154,7 +176,7 @@ class Bot(commands.Bot):
             words = self.bad_words.get(str(member.guild.id), [])
             for word in words:
                 if word in name:
-                    name = name.replace(word, '*'*len(word))
+                    name = name.replace(word, '*' * len(word))
             overwrites = {
                 member.guild.me: discord.PermissionOverwrite(
                     view_channel=True,
@@ -176,8 +198,8 @@ class Bot(commands.Bot):
                 user_limit=limit
             )
 
-            text_overwrites = {channel.guild.default_role: discord.PermissionOverwrite(read_messages=False)}
-            for m in channel.members:
+            text_overwrites = {voice_channel.guild.default_role: discord.PermissionOverwrite(read_messages=False)}
+            for m in voice_channel.members:
                 text_overwrites[m] = discord.PermissionOverwrite(read_messages=True)
 
             new_text_channel = await member.guild.create_text_channel(
@@ -204,27 +226,61 @@ class Bot(commands.Bot):
                 return
             await self.configs.save()
 
-    async def on_voice_leave(self, member, channel):
-        if channel.id in self.channels:
-            if len(channel.members) == 0:
-                perms = channel.permissions_for(member.guild.me)
-                if perms.manage_channels:
-                    await self.clear_empty_channels(channel)
-                self.channels.remove(channel.id)
-                del self.channel_indexes[channel.id]
+    async def on_voice_leave(self, member, voice_channel):
+        # [ c for c in channel.guild.channels if c.type == ChannelType.text and c.name == channel.name]
+        category_settings = self.configs['category-channels']
+        if voice_channel.id in self.channels:
+            if len(voice_channel.members) == 0:
+                await self.clear_empty_voice_channels(member, voice_channel)
+                self.channels.remove(voice_channel.id)
+                del self.channel_indexes[voice_channel.id]
                 await self.channels.save()
-        text_channel = [c for c in channel.guild.channels if c.type == ChannelType.text and c.name == channel.name]
-        if text_channel:
-            text_channel = text_channel[0]
-            overwrite = {channel.guild.default_role: discord.PermissionOverwrite(read_messages=False)}
-            for m in channel.members:
-                overwrite[m] = discord.PermissionOverwrite(read_messages=True)
-            overwrite[member] = discord.PermissionOverwrite(read_messages=False)
-            await text_channel.edit(overwrites=overwrite)
+                text_channels = self.get_text_channels(voice_channel)
+                for text_channel in text_channels:
+                    await text_channel.delete()
+            else:
+                text_channels = self.get_text_channels(voice_channel)
+                if text_channels:
+                    text_channel = text_channels[0]
+                    await self.overwrite_text_channel_permissions(voice_channel, text_channel)
+        if voice_channel.category.name.lower() in category_settings:
+            if len(voice_channel.members) == 0:
+                await self.clear_empty_text_channels(member, voice_channel)
+            else:
+                text_channels = self.get_text_channels(voice_channel)
+                if text_channels:
+                    text_channel = text_channels[0]
+                    await self.overwrite_text_channel_permissions(voice_channel, text_channel)
 
-    async def clear_empty_channels(self, channel):
-        [await c.delete() for c in channel.guild.channels if c.type == ChannelType.text and c.name == channel.name]
-        await channel.delete()
+
+    def get_text_channels(self, channel):
+        text_channel = [c for c in channel.guild.channels if
+                        c.type == ChannelType.text and c.name == self.get_channel_text_name(channel.name)
+                        and c.category.id == channel.category.id]
+        return text_channel
+
+    async def overwrite_text_channel_permissions(self, voice_channel, text_channel: discord.TextChannel):
+        overwrite = {voice_channel.guild.default_role: discord.PermissionOverwrite(read_messages=False)}
+        for m in voice_channel.members:
+            overwrite[m] = discord.PermissionOverwrite(read_messages=True)
+        #overwrite[member] = discord.PermissionOverwrite(read_messages=False)
+        await text_channel.edit(overwrites=overwrite)
+
+    async def clear_empty_voice_channels(self, member, channel):
+        perms = channel.permissions_for(member.guild.me)
+        if perms.manage_channels:
+            # [await c.delete() for c in channel.guild.channels if
+            #  c.type == ChannelType.voice and c.name == channel.name.lower()]
+            await channel.delete()
+
+    async def clear_empty_text_channels(self, member, voice_channel):
+        perms = voice_channel.permissions_for(member.guild.me)
+        if perms.manage_channels:
+            for c in self.get_text_channels(voice_channel):
+                await c.delete()
+
+    def get_channel_text_name(self, voice_channel_name):
+        return voice_channel_name.lower().replace(' ', '-')
 
     async def on_command_error(self, ctx, error):
         if isinstance(error, commands.CommandNotFound):
