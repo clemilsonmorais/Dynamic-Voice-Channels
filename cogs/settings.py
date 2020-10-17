@@ -252,9 +252,9 @@ class Settings(commands.Cog):
             if len(message.content) < 2:
                 msg = 'The name cannot be less than 2 characters. Try again.'
             else:
+                if not ctx.bot.configs['category-channels']:
+                    ctx.bot.configs['category-channels'] = []
                 category_config = ctx.bot.configs['category-channels']
-                if not category_config:
-                    category_config = []
                 if remove and message.content in category_config:
                     category_config.remove(message.content)
                     await ctx.bot.configs.save()

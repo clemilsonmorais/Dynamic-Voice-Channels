@@ -236,6 +236,8 @@ class Bot(commands.Bot):
 
     async def on_voice_leave(self, member, voice_channel):
         # [ c for c in channel.guild.channels if c.type == ChannelType.text and c.name == channel.name]
+        if 'category-channels' not in self.configs:
+            self.configs['category-channels'] = []
         category_settings = self.configs['category-channels']
         if voice_channel.id in self.channels:
             if len(voice_channel.members) == 0:
@@ -252,7 +254,7 @@ class Bot(commands.Bot):
                 if text_channels:
                     text_channel = text_channels[0]
                     await self.overwrite_text_channel_permissions(voice_channel, text_channel)
-        if voice_channel.category.name.lower() in category_settings:
+        if voice_channel.category and voice_channel.category.name.lower() in category_settings:
             if len(voice_channel.members) == 0:
                 await self.clear_empty_text_channels(member, voice_channel)
             else:
