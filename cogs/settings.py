@@ -5,7 +5,6 @@ import asyncio
 from functools import cached_property
 import inspect
 
-
 NAME = config.emojis['name']
 LIMIT = config.emojis['limit']
 POSITION = config.emojis['position']
@@ -223,11 +222,14 @@ class Settings(commands.Cog):
     async def settextvoice(self, ctx):
         await self.on_set_text_voice(ctx, False)
 
+    @commands.command(aliases=['cln'])
+    async def cleanup(self, ctx):
+        pass
+
     @commands.command(aliases=['removetextvoice'])
     async def create_text_on_voice_join(self, ctx):
         print('category')
         await self.on_set_text_voice(ctx, True)
-
 
     @commands.command(aliases=['rn'])
     async def rename(self, ctx):

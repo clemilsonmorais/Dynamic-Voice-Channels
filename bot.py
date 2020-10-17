@@ -19,7 +19,6 @@ extensions = (
 
 
 class Bot(commands.Bot):
-    channel_indexes = {}
 
     def __init__(self):
         super().__init__(
@@ -37,6 +36,7 @@ class Bot(commands.Bot):
         self.configs = JSONDict('data/configs.json')  # Mapping[channel_id, config]
         self.channels = JSONList('data/channels.json')  # List[channel_id]
         self.blacklist = JSONList('data/blacklist.json')  # List[user_id]
+        self.channel_indexes = JSONDict('data/channel_indexes.json')  # List[channel_indexes]
 
         self.voice_spam_control = commands.CooldownMapping.from_cooldown(3, 5, commands.BucketType.user)
         self.voice_spam_counter = Counter()
@@ -49,6 +49,13 @@ class Bot(commands.Bot):
 
     async def on_ready(self):
         if self.launched_at is None:
+            guilds = self.guilds
+            for guild in guilds:
+                voice_channels = guild.voice_channels
+                for ch in voice_channels:
+                    await self.on_voice_leave(guild.me, ch)
+            self.channel_indexes.clear()
+            await self.channel_indexes.save()
             self.launched_at = datetime.datetime.utcnow()
             print('Logged in as', self.user)
 
@@ -216,6 +223,7 @@ class Bot(commands.Bot):
 
             if save_index:
                 self.channel_indexes[new_channel.id] = index
+                await self.channel_indexes.save()
             await self.channels.save()
 
     async def on_guild_channel_delete(self, channel):
@@ -233,7 +241,8 @@ class Bot(commands.Bot):
             if len(voice_channel.members) == 0:
                 await self.clear_empty_voice_channels(member, voice_channel)
                 self.channels.remove(voice_channel.id)
-                del self.channel_indexes[voice_channel.id]
+                if voice_channel.id in self.channel_indexes:
+                    del self.channel_indexes[voice_channel.id]
                 await self.channels.save()
                 text_channels = self.get_text_channels(voice_channel)
                 for text_channel in text_channels:
